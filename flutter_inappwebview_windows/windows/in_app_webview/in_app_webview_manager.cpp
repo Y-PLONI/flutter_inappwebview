@@ -2,6 +2,7 @@
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 #include <cassert>
+#include <wrl/client.h>
 #include <shlobj.h>
 #include <windows.foundation.h>
 #include <windows.graphics.capture.h>
@@ -16,6 +17,42 @@
 #include "../utils/vector.h"
 #include "../webview_environment/webview_environment_manager.h"
 #include "in_app_webview_manager.h"
+
+namespace
+{
+  void pumpMessagesUntilCompleted(IAsyncInfo* asyncInfo)
+  {
+    if (!asyncInfo) {
+      return;
+    }
+
+    bool shouldRepostQuitMessage = false;
+    int quitExitCode = 0;
+    AsyncStatus status = AsyncStatus::Started;
+    while (SUCCEEDED(asyncInfo->get_Status(&status)) &&
+      status == AsyncStatus::Started) {
+      MSG message;
+      if (PeekMessage(&message, nullptr, 0, 0, PM_REMOVE)) {
+        if (message.message == WM_QUIT) {
+          shouldRepostQuitMessage = true;
+          quitExitCode = static_cast<int>(message.wParam);
+          continue;
+        }
+
+        TranslateMessage(&message);
+        DispatchMessage(&message);
+      }
+      else {
+        MsgWaitForMultipleObjectsEx(
+          0, nullptr, 10, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+      }
+    }
+
+    if (shouldRepostQuitMessage) {
+      PostQuitMessage(quitExitCode);
+    }
+  }
+}
 
 namespace flutter_inappwebview_plugin
 {
@@ -253,19 +290,37 @@ namespace flutter_inappwebview_plugin
     return !!is_supported;
   }
 
-  ABI::Windows::System::IDispatcherQueueController* InAppWebViewManager::detachSharedResourcesForShutdown()
+  InAppWebViewManager::SharedResourcesForShutdown InAppWebViewManager::detachSharedResourcesForShutdown()
   {
-    // These WinRT/Composition objects are intentionally process-lifetime
-    // objects. Releasing them during Flutter engine teardown can call into
-    // WinRT DLLs while they are unloading. Null the cached pointers so the
-    // plugin won't use them again; the OS will reclaim them at process exit.
+    // The cached pointers are raw so no static destructor can release WinRT
+    // objects during DLL unload. Move them out here so the last live manager
+    // can clean them up earlier, while the message loop can still run.
+    SharedResourcesForShutdown resources = {
+      rohelper_,
+      dispatcher_queue_controller_,
+      graphics_context_,
+      compositor_
+    };
+
     valid_ = false;
-    const auto dispatcherQueueController = dispatcher_queue_controller_;
-    dispatcher_queue_controller_ = nullptr;
-    compositor_ = nullptr;
     graphics_context_ = nullptr;
+    compositor_ = nullptr;
     rohelper_ = nullptr;
-    return dispatcherQueueController;
+    dispatcher_queue_controller_ = nullptr;
+    return resources;
+  }
+
+  void InAppWebViewManager::releaseSharedResourcesForShutdown(SharedResourcesForShutdown resources)
+  {
+    if (resources.compositor) {
+      resources.compositor->Release();
+    }
+
+    delete resources.graphicsContext;
+
+    shutdownDispatcherQueue(resources.dispatcherQueueController);
+
+    delete resources.rohelper;
   }
 
   void InAppWebViewManager::shutdownDispatcherQueue(ABI::Windows::System::IDispatcherQueueController* dispatcherQueueController)
@@ -274,11 +329,22 @@ namespace flutter_inappwebview_plugin
       return;
     }
 
-    ABI::Windows::Foundation::IAsyncAction* shutdownOperation = nullptr;
-    failedLog(dispatcherQueueController->ShutdownQueueAsync(&shutdownOperation));
-    // Do not release the async operation during shutdown; keep it alive for
-    // the remaining process lifetime so it cannot race with queue shutdown.
-    (void)shutdownOperation;
+    Microsoft::WRL::ComPtr<ABI::Windows::System::IDispatcherQueueController>
+      dispatcherQueueControllerRef;
+    dispatcherQueueControllerRef.Attach(dispatcherQueueController);
+
+    Microsoft::WRL::ComPtr<ABI::Windows::Foundation::IAsyncAction> shutdownOperation;
+    if (failedAndLog(dispatcherQueueControllerRef->ShutdownQueueAsync(&shutdownOperation)) ||
+      !shutdownOperation) {
+      return;
+    }
+
+    Microsoft::WRL::ComPtr<IAsyncInfo> asyncInfo;
+    if (succeededOrLog(shutdownOperation.As(&asyncInfo)) && asyncInfo) {
+      pumpMessagesUntilCompleted(asyncInfo.Get());
+    }
+
+    failedLog(shutdownOperation->GetResults());
   }
 
   InAppWebViewManager::~InAppWebViewManager()
@@ -290,16 +356,16 @@ namespace flutter_inappwebview_plugin
     UnregisterClass(windowClass_.lpszClassName, nullptr);
     plugin = nullptr;
 
-    ABI::Windows::System::IDispatcherQueueController* dispatcherQueueController = nullptr;
+    SharedResourcesForShutdown resources;
     {
       const std::lock_guard<std::mutex> lock(shared_resources_mutex_);
       assert(instance_count_ > 0);
       --instance_count_;
       if (instance_count_ == 0) {
-        dispatcherQueueController = detachSharedResourcesForShutdown();
+        resources = detachSharedResourcesForShutdown();
       }
     }
 
-    shutdownDispatcherQueue(dispatcherQueueController);
+    releaseSharedResourcesForShutdown(resources);
   }
 }
