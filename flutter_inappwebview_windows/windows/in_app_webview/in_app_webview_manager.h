@@ -67,15 +67,7 @@ namespace flutter_inappwebview_plugin
     inline static std::size_t instance_count_ = 0;
     inline static std::mutex shared_resources_mutex_;
 
-    struct SharedResourcesForShutdown {
-      rx::RoHelper* rohelper = nullptr;
-      ABI::Windows::System::IDispatcherQueueController* dispatcherQueueController = nullptr;
-      GraphicsContext* graphicsContext = nullptr;
-      ABI::Windows::UI::Composition::ICompositor* compositor = nullptr;
-    };
-
-    static SharedResourcesForShutdown detachSharedResourcesForShutdown();
-    static void releaseSharedResourcesForShutdown(SharedResourcesForShutdown resources);
+    static ABI::Windows::System::IDispatcherQueueController* detachSharedResourcesForShutdown();
     static void shutdownDispatcherQueue(ABI::Windows::System::IDispatcherQueueController* dispatcherQueueController);
   };
 }
