@@ -26,7 +26,7 @@ namespace flutter_inappwebview_plugin
   public:
     static inline const std::string METHOD_CHANNEL_NAME = "com.pichillilorenzo/flutter_inappwebview_manager";
 
-    const FlutterInappwebviewWindowsPlugin* plugin;
+    FlutterInappwebviewWindowsPlugin* plugin;
     std::map<uint64_t, std::unique_ptr<CustomPlatformView>> webViews;
     std::map<std::string, std::unique_ptr<CustomPlatformView>> keepAliveWebViews;
     std::map<int64_t, std::unique_ptr<NewWindowRequestedArgs>> windowWebViews;
@@ -48,7 +48,7 @@ namespace flutter_inappwebview_plugin
       return compositor;
     }
 
-    InAppWebViewManager(const FlutterInappwebviewWindowsPlugin* plugin);
+    InAppWebViewManager(FlutterInappwebviewWindowsPlugin* plugin);
     ~InAppWebViewManager();
 
     void HandleMethodCall(
@@ -57,6 +57,9 @@ namespace flutter_inappwebview_plugin
 
     void createInAppWebView(const flutter::EncodableMap* arguments, std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
     void disposeKeepAlive(const std::string& keepAliveId);
+    void disposeAllViews();
+    void shutdownSharedResources();
+    void shutdownAll();
   private:
     inline static rx::RoHelper* rohelper_ = nullptr;
     inline static ABI::Windows::System::IDispatcherQueueController* dispatcher_queue_controller_ = nullptr;
@@ -64,10 +67,12 @@ namespace flutter_inappwebview_plugin
     inline static ABI::Windows::UI::Composition::ICompositor* compositor_ = nullptr;
     WNDCLASS windowClass_ = {};
     inline static bool valid_ = false;
+    inline static bool shared_resources_shutdown_ = false;
     inline static std::size_t instance_count_ = 0;
     inline static std::mutex shared_resources_mutex_;
 
     static ABI::Windows::System::IDispatcherQueueController* detachSharedResourcesForShutdown();
+    static ABI::Windows::System::IDispatcherQueueController* takeSharedResourcesForShutdown();
     static void shutdownDispatcherQueue(ABI::Windows::System::IDispatcherQueueController* dispatcherQueueController);
   };
 }

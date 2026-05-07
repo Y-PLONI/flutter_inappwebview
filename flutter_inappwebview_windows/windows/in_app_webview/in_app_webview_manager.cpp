@@ -55,7 +55,7 @@ namespace
 
 namespace flutter_inappwebview_plugin
 {
-  InAppWebViewManager::InAppWebViewManager(const FlutterInappwebviewWindowsPlugin* plugin)
+  InAppWebViewManager::InAppWebViewManager(FlutterInappwebviewWindowsPlugin* plugin)
     : plugin(plugin),
     ChannelDelegate(plugin->registrar->messenger(), InAppWebViewManager::METHOD_CHANNEL_NAME)
   {
@@ -64,6 +64,7 @@ namespace flutter_inappwebview_plugin
       ++instance_count_;
 
       if (!rohelper_) {
+        shared_resources_shutdown_ = false;
         rohelper_ = new rx::RoHelper(RO_INIT_SINGLETHREADED);
 
         if (rohelper_->WinRtAvailable()) {
@@ -136,6 +137,12 @@ namespace flutter_inappwebview_plugin
     else if (string_equals(methodName, "getJavaScriptBridgeName")) {
       result->Success(JavaScriptBridgeJS::get_JAVASCRIPT_BRIDGE_NAME());
     }
+    else if (string_equals(methodName, "prepareForEngineShutdown")) {
+      if (plugin) {
+        plugin->prepareForEngineShutdown();
+      }
+      result->Success();
+    }
     else {
       result->NotImplemented();
     }
@@ -145,7 +152,7 @@ namespace flutter_inappwebview_plugin
   {
     auto result_ = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(std::move(result));
 
-    if (!plugin) {
+    if (!plugin || plugin->isShuttingDown()) {
       result_->Error("0", "Cannot create the InAppWebView instance!");
       return;
     }
@@ -192,7 +199,8 @@ namespace flutter_inappwebview_plugin
         wil::com_ptr<ICoreWebView2Controller> webViewController,
         wil::com_ptr<ICoreWebView2CompositionController> webViewCompositionController)
       {
-        if (plugin && webViewEnv && webViewController && webViewCompositionController) {
+        if (plugin && !plugin->isShuttingDown() &&
+          webViewEnv && webViewController && webViewCompositionController) {
           std::optional<std::vector<std::shared_ptr<UserScript>>> initialUserScripts = initialUserScriptList.has_value() ?
             functional_map(initialUserScriptList.value(), [](const flutter::EncodableValue& map) { return std::make_shared<UserScript>(std::get<flutter::EncodableMap>(map)); }) :
             std::optional<std::vector<std::shared_ptr<UserScript>>>{};
@@ -243,6 +251,9 @@ namespace flutter_inappwebview_plugin
           result_->Success(textureId);
         }
         else {
+          if (hwnd) {
+            DestroyWindow(hwnd);
+          }
           result_->Error("0", "Cannot create the InAppWebView instance!");
         }
       }
@@ -258,6 +269,26 @@ namespace flutter_inappwebview_plugin
       }
       keepAliveWebViews.erase(keepAliveId);
     }
+  }
+
+  void InAppWebViewManager::disposeAllViews()
+  {
+    webViews.clear();
+    keepAliveWebViews.clear();
+    windowWebViews.clear();
+  }
+
+  void InAppWebViewManager::shutdownSharedResources()
+  {
+    // ShutdownQueueAsync() requires a nested message pump on the UI thread.
+    // Call this only after every WebView/environment has already been torn down.
+    shutdownDispatcherQueue(takeSharedResourcesForShutdown());
+  }
+
+  void InAppWebViewManager::shutdownAll()
+  {
+    disposeAllViews();
+    shutdownSharedResources();
   }
 
   bool InAppWebViewManager::isGraphicsCaptureSessionSupported()
@@ -303,6 +334,16 @@ namespace flutter_inappwebview_plugin
     return dispatcherQueueController;
   }
 
+  ABI::Windows::System::IDispatcherQueueController* InAppWebViewManager::takeSharedResourcesForShutdown()
+  {
+    const std::lock_guard<std::mutex> lock(shared_resources_mutex_);
+    if (shared_resources_shutdown_) {
+      return nullptr;
+    }
+    shared_resources_shutdown_ = true;
+    return detachSharedResourcesForShutdown();
+  }
+
   void InAppWebViewManager::shutdownDispatcherQueue(ABI::Windows::System::IDispatcherQueueController* dispatcherQueueController)
   {
     if (!dispatcherQueueController) {
@@ -331,9 +372,7 @@ namespace flutter_inappwebview_plugin
   InAppWebViewManager::~InAppWebViewManager()
   {
     debugLog("dealloc InAppWebViewManager");
-    webViews.clear();
-    keepAliveWebViews.clear();
-    windowWebViews.clear();
+    shutdownAll();
     UnregisterClass(windowClass_.lpszClassName, nullptr);
     plugin = nullptr;
 
@@ -342,7 +381,8 @@ namespace flutter_inappwebview_plugin
       const std::lock_guard<std::mutex> lock(shared_resources_mutex_);
       assert(instance_count_ > 0);
       --instance_count_;
-      if (instance_count_ == 0) {
+      if (!shared_resources_shutdown_ && instance_count_ == 0) {
+        shared_resources_shutdown_ = true;
         dispatcherQueueController = detachSharedResourcesForShutdown();
       }
     }

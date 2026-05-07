@@ -28,12 +28,19 @@ namespace flutter_inappwebview_plugin
 
     virtual ~FlutterInappwebviewWindowsPlugin();
 
+    void prepareForEngineShutdown();
+    bool isShuttingDown() const
+    {
+      return shutting_down_;
+    }
+
     // Disallow copy and assign.
     FlutterInappwebviewWindowsPlugin(const FlutterInappwebviewWindowsPlugin&) = delete;
     FlutterInappwebviewWindowsPlugin& operator=(const FlutterInappwebviewWindowsPlugin&) = delete;
   private:
     // The ID of the WindowProc delegate registration.
     int window_proc_id = -1;
+    bool shutting_down_ = false;
     std::optional<LRESULT> FlutterInappwebviewWindowsPlugin::HandleWindowProc(
       HWND hWnd,
       UINT message,

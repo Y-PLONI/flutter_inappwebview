@@ -46,7 +46,7 @@ namespace flutter_inappwebview_plugin
   {
     auto result_ = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(std::move(result));
 
-    if (!plugin) {
+    if (!plugin || plugin->isShuttingDown()) {
       result_->Error("0", "Cannot create the HeadlessInAppWebView instance!");
       return;
     }
@@ -85,7 +85,7 @@ namespace flutter_inappwebview_plugin
         wil::com_ptr<ICoreWebView2Controller> webViewController,
         wil::com_ptr<ICoreWebView2CompositionController> webViewCompositionController)
       {
-        if (plugin && webViewEnv && webViewController) {
+        if (plugin && !plugin->isShuttingDown() && webViewEnv && webViewController) {
           std::optional<std::vector<std::shared_ptr<UserScript>>> initialUserScripts = initialUserScriptList.has_value() ?
             functional_map(initialUserScriptList.value(), [](const flutter::EncodableValue& map) { return std::make_shared<UserScript>(std::get<flutter::EncodableMap>(map)); }) :
             std::optional<std::vector<std::shared_ptr<UserScript>>>{};
@@ -132,16 +132,24 @@ namespace flutter_inappwebview_plugin
           result_->Success(true);
         }
         else {
+          if (hwnd) {
+            DestroyWindow(hwnd);
+          }
           result_->Error("0", "Cannot create the HeadlessInAppWebView instance!");
         }
       }
     );
   }
 
+  void HeadlessInAppWebViewManager::shutdownAll()
+  {
+    webViews.clear();
+  }
+
   HeadlessInAppWebViewManager::~HeadlessInAppWebViewManager()
   {
     debugLog("dealloc HeadlessInAppWebViewManager");
-    webViews.clear();
+    shutdownAll();
     UnregisterClass(windowClass_.lpszClassName, nullptr);
     plugin = nullptr;
   }

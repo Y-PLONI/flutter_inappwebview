@@ -57,6 +57,11 @@ namespace flutter_inappwebview_plugin
   {
     auto result_ = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(std::move(result));
 
+    if (!plugin || plugin->isShuttingDown()) {
+      result_->Error("0", "Cannot create WebViewEnvironment while the plugin is shutting down!");
+      return;
+    }
+
     auto webViewEnvironment = std::make_unique<WebViewEnvironment>(plugin, id);
     webViewEnvironment->create(std::move(settings),
       [this, id, result_](HRESULT errorCode)
@@ -76,6 +81,13 @@ namespace flutter_inappwebview_plugin
 
   void WebViewEnvironmentManager::createOrGetDefaultWebViewEnvironment(const std::function<void(WebViewEnvironment*)> completionHandler)
   {
+    if (!plugin || plugin->isShuttingDown()) {
+      if (completionHandler) {
+        completionHandler(nullptr);
+      }
+      return;
+    }
+
     if (defaultEnvironment_) {
       if (completionHandler) {
         completionHandler(defaultEnvironment_.get());
@@ -116,12 +128,17 @@ namespace flutter_inappwebview_plugin
     return std::nullopt;
   }
 
+  void WebViewEnvironmentManager::shutdownAll()
+  {
+    webViewEnvironments.clear();
+    defaultEnvironment_ = nullptr;
+  }
+
   WebViewEnvironmentManager::~WebViewEnvironmentManager()
   {
     debugLog("dealloc WebViewEnvironmentManager");
-    webViewEnvironments.clear();
+    shutdownAll();
     plugin = nullptr;
-    defaultEnvironment_ = nullptr;
     if (hwnd_) {
       DestroyWindow(hwnd_);
     }
