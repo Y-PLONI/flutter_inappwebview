@@ -2,6 +2,7 @@
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 #include <cassert>
+#include <wrl/client.h>
 #include <shlobj.h>
 #include <windows.foundation.h>
 #include <windows.graphics.capture.h>
@@ -289,18 +290,37 @@ namespace flutter_inappwebview_plugin
     return !!is_supported;
   }
 
-  ABI::Windows::System::IDispatcherQueueController* InAppWebViewManager::detachSharedResourcesForShutdown()
+  InAppWebViewManager::SharedResourcesForShutdown InAppWebViewManager::detachSharedResourcesForShutdown()
   {
-    // Keep the shared WinRT/D3D objects as process-lifetime allocations.
-    // Releasing them during teardown can re-enter D3D/Intel driver cleanup and
-    // hang the UI thread; null the cache so no future instance can reuse them.
+    // The cached pointers are raw so no static destructor can release WinRT
+    // objects during DLL unload. Move them out here so the last live manager
+    // can clean them up earlier, while the message loop can still run.
+    SharedResourcesForShutdown resources = {
+      rohelper_,
+      dispatcher_queue_controller_,
+      graphics_context_,
+      compositor_
+    };
+
     valid_ = false;
-    const auto dispatcherQueueController = dispatcher_queue_controller_;
     graphics_context_ = nullptr;
     compositor_ = nullptr;
     rohelper_ = nullptr;
     dispatcher_queue_controller_ = nullptr;
-    return dispatcherQueueController;
+    return resources;
+  }
+
+  void InAppWebViewManager::releaseSharedResourcesForShutdown(SharedResourcesForShutdown resources)
+  {
+    if (resources.compositor) {
+      resources.compositor->Release();
+    }
+
+    delete resources.graphicsContext;
+
+    shutdownDispatcherQueue(resources.dispatcherQueueController);
+
+    delete resources.rohelper;
   }
 
   void InAppWebViewManager::shutdownDispatcherQueue(ABI::Windows::System::IDispatcherQueueController* dispatcherQueueController)
@@ -309,23 +329,22 @@ namespace flutter_inappwebview_plugin
       return;
     }
 
-    ABI::Windows::Foundation::IAsyncAction* shutdownOperation = nullptr;
-    if (failedAndLog(dispatcherQueueController->ShutdownQueueAsync(&shutdownOperation)) ||
+    Microsoft::WRL::ComPtr<ABI::Windows::System::IDispatcherQueueController>
+      dispatcherQueueControllerRef;
+    dispatcherQueueControllerRef.Attach(dispatcherQueueController);
+
+    Microsoft::WRL::ComPtr<ABI::Windows::Foundation::IAsyncAction> shutdownOperation;
+    if (failedAndLog(dispatcherQueueControllerRef->ShutdownQueueAsync(&shutdownOperation)) ||
       !shutdownOperation) {
       return;
     }
 
-    IAsyncInfo* asyncInfo = nullptr;
-    if (succeededOrLog(shutdownOperation->QueryInterface(IID_PPV_ARGS(&asyncInfo))) &&
-      asyncInfo) {
-      pumpMessagesUntilCompleted(asyncInfo);
+    Microsoft::WRL::ComPtr<IAsyncInfo> asyncInfo;
+    if (succeededOrLog(shutdownOperation.As(&asyncInfo)) && asyncInfo) {
+      pumpMessagesUntilCompleted(asyncInfo.Get());
     }
 
     failedLog(shutdownOperation->GetResults());
-
-    // The dispatcher queue is drained at this point, but we still intentionally
-    // leak the controller/operation so teardown never re-enters COM or D3D
-    // release paths after the Flutter window has started shutting down.
   }
 
   InAppWebViewManager::~InAppWebViewManager()
@@ -337,16 +356,16 @@ namespace flutter_inappwebview_plugin
     UnregisterClass(windowClass_.lpszClassName, nullptr);
     plugin = nullptr;
 
-    ABI::Windows::System::IDispatcherQueueController* dispatcherQueueController = nullptr;
+    SharedResourcesForShutdown resources;
     {
       const std::lock_guard<std::mutex> lock(shared_resources_mutex_);
       assert(instance_count_ > 0);
       --instance_count_;
       if (instance_count_ == 0) {
-        dispatcherQueueController = detachSharedResourcesForShutdown();
+        resources = detachSharedResourcesForShutdown();
       }
     }
 
-    shutdownDispatcherQueue(dispatcherQueueController);
+    releaseSharedResourcesForShutdown(resources);
   }
 }
