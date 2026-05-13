@@ -48,49 +48,12 @@ namespace flutter_inappwebview_plugin
     if (registrar) {
       registrar->UnregisterTopLevelWindowProcDelegate(window_proc_id);
     }
-
-    // Host apps may invoke prepareForEngineShutdown() before engine teardown.
-    // The destructor intentionally calls it again as an idempotent fallback.
-    prepareForEngineShutdown();
-
-    platformUtil = nullptr;
-    cookieManager = nullptr;
-    headlessInAppWebViewManager = nullptr;
-    inAppBrowserManager = nullptr;
-    inAppWebViewManager = nullptr;
     webViewEnvironmentManager = nullptr;
-  }
-
-  void FlutterInappwebviewWindowsPlugin::prepareForEngineShutdown()
-  {
-    if (shutting_down_) {
-      return;
-    }
-
-    debugLog("prepareForEngineShutdown invoked");
-    shutting_down_ = true;
-
-    // Dispose every WebView/browser/environment first so the dispatcher queue
-    // drain below cannot re-enter code paths that still expect live instances.
-    if (inAppBrowserManager) {
-      inAppBrowserManager->shutdownAll();
-    }
-
-    if (headlessInAppWebViewManager) {
-      headlessInAppWebViewManager->shutdownAll();
-    }
-
-    if (inAppWebViewManager) {
-      inAppWebViewManager->disposeAllViews();
-    }
-
-    if (webViewEnvironmentManager) {
-      webViewEnvironmentManager->shutdownAll();
-    }
-
-    if (inAppWebViewManager) {
-      inAppWebViewManager->shutdownSharedResources();
-    }
+    inAppWebViewManager = nullptr;
+    inAppBrowserManager = nullptr;
+    headlessInAppWebViewManager = nullptr;
+    cookieManager = nullptr;
+    platformUtil = nullptr;
   }
 
 

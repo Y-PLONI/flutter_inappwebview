@@ -28,7 +28,6 @@ namespace flutter_inappwebview_plugin
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
 
     void createInAppBrowser(const flutter::EncodableMap* arguments);
-    void shutdownAll();
   };
 }
 #endif //FLUTTER_INAPPWEBVIEW_PLUGIN_IN_APP_BROWSER_MANAGER_H_

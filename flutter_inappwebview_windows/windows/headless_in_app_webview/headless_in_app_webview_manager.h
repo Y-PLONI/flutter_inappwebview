@@ -29,7 +29,6 @@ namespace flutter_inappwebview_plugin
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
 
     void run(const flutter::EncodableMap* arguments, std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
-    void shutdownAll();
   private:
     WNDCLASS windowClass_ = {};
   };

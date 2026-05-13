@@ -25,7 +25,7 @@ namespace flutter_inappwebview_plugin
     auto& methodName = method_call.method_name();
 
     if (string_equals(methodName, "open")) {
-      if (plugin && !plugin->isShuttingDown()) {
+      if (plugin) {
         createInAppBrowser(arguments);
         result->Success(true);
       }
@@ -85,26 +85,10 @@ namespace flutter_inappwebview_plugin
     browsers.insert({ id, std::move(inAppBrowser) });
   }
 
-  void InAppBrowserManager::shutdownAll()
-  {
-    std::vector<InAppBrowser*> browsersToClose = {};
-    for (const auto& [id, browser] : browsers) {
-      if (browser) {
-        browsersToClose.push_back(browser.get());
-      }
-    }
-
-    for (auto* browser : browsersToClose) {
-      browser->close();
-    }
-
-    browsers.clear();
-  }
-
   InAppBrowserManager::~InAppBrowserManager()
   {
     debugLog("dealloc InAppBrowserManager");
-    shutdownAll();
+    browsers.clear();
     plugin = nullptr;
   }
 }
