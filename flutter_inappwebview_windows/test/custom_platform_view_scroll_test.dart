@@ -76,8 +76,9 @@ void main() {
 
       final pointer = TestPointer(1, PointerDeviceKind.trackpad);
       await tester.sendEventToBinding(pointer.panZoomStart(center));
-      // Four 0.4px updates cross one wheel unit after calibration.
-      // Before accumulation, native short truncation lost each update.
+      // 0.4px updates become 0.72 wheel units after the 1.2×1.5 gain; they
+      // cross a whole unit on the 2nd and 3rd updates. Before accumulation,
+      // native short truncation lost each update entirely.
       for (var i = 1; i <= 4; i++) {
         await tester.sendEventToBinding(
           pointer.panZoomUpdate(center, pan: Offset(0, -0.4 * i)),
@@ -88,6 +89,7 @@ void main() {
 
       expect(scrollDeltaCalls(), [
         [0.0, -1.0],
+        [0.0, -1.0],
       ]);
     });
 
@@ -97,7 +99,7 @@ void main() {
       final pointer = TestPointer(1, PointerDeviceKind.trackpad);
       await tester.sendEventToBinding(pointer.panZoomStart(center));
       // 60 updates of 0.25px = 15px finger travel.
-      // With 120/100 calibration this becomes about 18 wheel units.
+      // With the 1.2×1.5 gain this becomes 27 wheel units.
       for (var i = 1; i <= 60; i++) {
         await tester.sendEventToBinding(
           pointer.panZoomUpdate(center, pan: Offset(0, -0.25 * i)),
@@ -111,8 +113,8 @@ void main() {
         (sum, args) => sum + args[1],
       );
       // עד יחידה אחת נשארת בצבירה (שארית עשרונית) — זה תקין.
-      expect(totalDy, lessThanOrEqualTo(-17.0));
-      expect(totalDy, greaterThanOrEqualTo(-18.0));
+      expect(totalDy, lessThanOrEqualTo(-26.0));
+      expect(totalDy, greaterThanOrEqualTo(-27.0));
     });
 
     testWidgets('integral deltas are forwarded with exact calibration', (
@@ -137,11 +139,11 @@ void main() {
       await tester.sendEventToBinding(pointer.panZoomEnd());
       await tester.pump();
 
-      // Pan pixels × 120/100: -5px → -6 units, -10px → -12, +5px → +6.
+      // Pan pixels × 1.2 × 1.5: -5px → -9 units, -10px → -18, +5px → +9.
       expect(scrollDeltaCalls(), [
-        [0.0, -6.0],
-        [0.0, -12.0],
-        [0.0, 6.0],
+        [0.0, -9.0],
+        [0.0, -18.0],
+        [0.0, 9.0],
       ]);
     });
 
@@ -162,10 +164,10 @@ void main() {
         pointer.panZoomUpdate(center, pan: const Offset(0, -10)),
       );
 
-      // -5px × 120/100 = -6 units per update, one message per event.
+      // -5px × 1.2 × 1.5 = -9 units per update, one message per event.
       expect(scrollDeltaCalls(), [
-        [0.0, -6.0],
-        [0.0, -6.0],
+        [0.0, -9.0],
+        [0.0, -9.0],
       ]);
       await tester.sendEventToBinding(pointer.panZoomEnd());
       await tester.pump();
@@ -184,7 +186,10 @@ void main() {
       await tester.sendEventToBinding(pointer.panZoomEnd());
       await tester.pump();
 
+      // 0.5px × 1.2 × 1.5 = 0.9 units per update: whole units flush on the
+      // 2nd and 3rd updates.
       expect(scrollDeltaCalls(), [
+        [-1.0, 0.0],
         [-1.0, 0.0],
       ]);
     });
@@ -197,18 +202,18 @@ void main() {
       final pointer = TestPointer(1, PointerDeviceKind.trackpad);
       await tester.sendEventToBinding(pointer.panZoomStart(center));
       await tester.sendEventToBinding(
-        pointer.panZoomUpdate(center, pan: const Offset(0, -0.7)),
+        pointer.panZoomUpdate(center, pan: const Offset(0, -0.5)),
       );
       await tester.sendEventToBinding(pointer.panZoomEnd());
 
       await tester.sendEventToBinding(pointer.panZoomStart(center));
       await tester.sendEventToBinding(
-        pointer.panZoomUpdate(center, pan: const Offset(0, -0.7)),
+        pointer.panZoomUpdate(center, pan: const Offset(0, -0.5)),
       );
       await tester.sendEventToBinding(pointer.panZoomEnd());
       await tester.pump();
 
-      // 0.7 + 0.7 crosses 1.0, but the remainder must not leak across
+      // 0.9 + 0.9 units cross 1.0, but the remainder must not leak across
       // separate gestures.
       expect(scrollDeltaCalls(), isEmpty);
     });

@@ -51,9 +51,20 @@ const Map<String, SystemMouseCursor> _cursors = {
 SystemMouseCursor _getCursorByName(String name) =>
     _cursors[name] ?? SystemMouseCursors.basic;
 
+/// The trackpad scroll-speed knob: how far the page moves per pixel of
+/// finger travel. 1.0 is exact 1:1 tracking (measured); it was reported to
+/// feel sluggish next to native precision-touchpad scrolling, which applies
+/// gain plus inertia. Synthetic fling distances pass through this factor
+/// too, so the glide scales together with the drag.
+const double _kTrackpadGain = 1.5;
+
 /// Converts trackpad pan pixels to WebView2 wheel units.
 /// Mouse-wheel deltas are already wheel-derived and are not scaled.
-double _panToWheelUnits(double pan) => (pan * 120.0) / 100.0;
+///
+/// WHEEL_DELTA (120) is one wheel notch and Chromium scrolls ~100px per
+/// notch (measured against a real WebView2), so pan*120/100 gives exact 1:1
+/// finger-to-page tracking, multiplied by the felt [_kTrackpadGain].
+double _panToWheelUnits(double pan) => (pan * 120.0 / 100.0) * _kTrackpadGain;
 
 /// Pointer button type
 // Order must match InAppWebViewPointerEventKind (see in_app_webview.h)
