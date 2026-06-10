@@ -494,6 +494,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                 },
                 onPointerSignal: (signal) {
                   if (signal is PointerScrollEvent) {
+                    _controller._setCursorPos(signal.localPosition);
                     _stopFling();
                     _sendScrollDelta(
                       -signal.scrollDelta.dx,
@@ -507,6 +508,7 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                   }
                 },
                 onPointerPanZoomStart: (ev) {
+                  _controller._setCursorPos(ev.localPosition);
                   _stopFling();
                   _scrollRemainderX = 0;
                   _scrollRemainderY = 0;

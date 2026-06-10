@@ -29,6 +29,14 @@ void main() {
       )
       .toList();
 
+  List<List<double>> cursorPosCalls() => viewChannelCalls
+      .where((call) => call.method == 'setCursorPos')
+      .map(
+        (call) =>
+            (call.arguments as List).map((e) => (e as num).toDouble()).toList(),
+      )
+      .toList();
+
   setUp(() {
     viewChannelCalls = <MethodCall>[];
     final messenger =
@@ -169,6 +177,35 @@ void main() {
         [0.0, -9.0],
         [0.0, -9.0],
       ]);
+      await tester.sendEventToBinding(pointer.panZoomEnd());
+      await tester.pump();
+    });
+
+    testWidgets('pan zoom start updates cursor position before scrolling', (
+      tester,
+    ) async {
+      final center = await pumpView(tester);
+
+      final pointer = TestPointer(1, PointerDeviceKind.trackpad);
+      await tester.sendEventToBinding(pointer.panZoomStart(center));
+      await tester.sendEventToBinding(
+        pointer.panZoomUpdate(center, pan: const Offset(0, -5)),
+      );
+
+      expect(cursorPosCalls(), [
+        [center.dx, center.dy],
+      ]);
+      expect(
+        viewChannelCalls
+            .where(
+              (call) =>
+                  call.method == 'setCursorPos' ||
+                  call.method == 'setScrollDelta',
+            )
+            .map((call) => call.method),
+        ['setCursorPos', 'setScrollDelta'],
+      );
+
       await tester.sendEventToBinding(pointer.panZoomEnd());
       await tester.pump();
     });
@@ -349,6 +386,35 @@ void main() {
   });
 
   group('mouse wheel (PointerScrollEvent)', () {
+    testWidgets('wheel updates cursor position before scrolling', (
+      tester,
+    ) async {
+      final center = await pumpView(tester);
+
+      final pointer = TestPointer(1, PointerDeviceKind.mouse);
+      await tester.sendEventToBinding(pointer.hover(center));
+      viewChannelCalls.clear();
+      await tester.sendEventToBinding(pointer.scroll(const Offset(0, 120)));
+      await tester.pump();
+
+      expect(cursorPosCalls(), [
+        [center.dx, center.dy],
+      ]);
+      expect(
+        viewChannelCalls
+            .where(
+              (call) =>
+                  call.method == 'setCursorPos' ||
+                  call.method == 'setScrollDelta',
+            )
+            .map((call) => call.method),
+        ['setCursorPos', 'setScrollDelta'],
+      );
+      expect(scrollDeltaCalls(), [
+        [0.0, -120.0],
+      ]);
+    });
+
     testWidgets('wheel deltas are still forwarded negated', (tester) async {
       final center = await pumpView(tester);
 
