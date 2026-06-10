@@ -115,7 +115,7 @@ void main() {
       expect(totalDy, greaterThanOrEqualTo(-18.0));
     });
 
-    testWidgets('integral deltas are flushed each frame, unchanged', (
+    testWidgets('integral deltas are forwarded with exact calibration', (
       tester,
     ) async {
       final center = await pumpView(tester);
@@ -145,31 +145,30 @@ void main() {
       ]);
     });
 
-    testWidgets('multiple updates within one frame coalesce to one message', (
-      tester,
-    ) async {
+    testWidgets('updates are forwarded immediately, without waiting for a '
+        'Flutter frame', (tester) async {
       final center = await pumpView(tester);
 
       final pointer = TestPointer(1, PointerDeviceKind.trackpad);
       await tester.sendEventToBinding(pointer.panZoomStart(center));
-      // A fast pan can deliver several pointer events between two frames;
-      // they must reach the native side as a single batched wheel event.
+      // No tester.pump() between the updates and the assertion: forwarding
+      // must not depend on Flutter's frame scheduling. Tying it to frames
+      // adds variable latency and lets a busy UI hold scroll input back and
+      // release it in bursts.
       await tester.sendEventToBinding(
-        pointer.panZoomUpdate(center, pan: const Offset(0, -4)),
-      );
-      await tester.sendEventToBinding(
-        pointer.panZoomUpdate(center, pan: const Offset(0, -9)),
+        pointer.panZoomUpdate(center, pan: const Offset(0, -5)),
       );
       await tester.sendEventToBinding(
         pointer.panZoomUpdate(center, pan: const Offset(0, -10)),
       );
+
+      // -5px × 120/100 = -6 units per update, one message per event.
+      expect(scrollDeltaCalls(), [
+        [0.0, -6.0],
+        [0.0, -6.0],
+      ]);
       await tester.sendEventToBinding(pointer.panZoomEnd());
       await tester.pump();
-
-      // 10px of finger travel × 120/100 = 12 wheel units, one message.
-      expect(scrollDeltaCalls(), [
-        [0.0, -12.0],
-      ]);
     });
 
     testWidgets('horizontal sub-pixel deltas accumulate too', (tester) async {

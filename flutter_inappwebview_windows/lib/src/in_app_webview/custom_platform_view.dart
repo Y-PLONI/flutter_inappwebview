@@ -309,7 +309,6 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
   // lost when the native side truncates to short.
   double _scrollRemainderX = 0;
   double _scrollRemainderY = 0;
-  bool _scrollFlushScheduled = false;
 
   // Synthetic trackpad inertia; this view bypasses Flutter Scrollable, so it
   // must continue a fast pan after the fingers lift.
@@ -489,6 +488,11 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
                       -signal.scrollDelta.dx,
                       -signal.scrollDelta.dy,
                     );
+                  } else if (signal is PointerScrollInertiaCancelEvent) {
+                    // Sent by the engine when the user touches the trackpad
+                    // during inertia — that touch must also halt the
+                    // synthetic glide.
+                    _stopFling();
                   }
                 },
                 onPointerPanZoomStart: (ev) {
@@ -541,18 +545,24 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
   }
 
   /// Forwards scroll deltas, preserving fractional remainders.
-  /// Sends are coalesced to at most one platform message per frame.
+  ///
+  /// Forwarding is intentionally immediate, NOT batched per Flutter frame:
+  /// tying sends to frame scheduling adds 0-16ms of *variable* latency, and
+  /// in a busy app a delayed UI frame holds scroll input back and releases it
+  /// in a burst — scrolling that intermittently "ignores" the fingers and
+  /// then catches up. Chromium coalesces a per-event wheel stream by itself
+  /// (this is what high-resolution mouse wheels produce natively).
   void _sendScrollDelta(double dx, double dy) {
     _scrollRemainderX += dx;
     _scrollRemainderY += dy;
-    if (_scrollFlushScheduled) {
+    final flushX = _scrollRemainderX.truncateToDouble();
+    final flushY = _scrollRemainderY.truncateToDouble();
+    if (flushX == 0 && flushY == 0) {
       return;
     }
-    _scrollFlushScheduled = true;
-    SchedulerBinding.instance.scheduleFrameCallback((_) {
-      _flushScrollDelta();
-    });
-    SchedulerBinding.instance.scheduleFrame();
+    _scrollRemainderX -= flushX;
+    _scrollRemainderY -= flushY;
+    _controller._setScrollDelta(flushX, flushY);
   }
 
   /// Starts synthetic inertia after a fast lifted pan.
@@ -598,21 +608,6 @@ class _CustomPlatformViewState extends State<CustomPlatformView>
         _panToWheelUnits(_flingDirection.dy * step),
       );
     }
-  }
-
-  void _flushScrollDelta() {
-    _scrollFlushScheduled = false;
-    if (!mounted) {
-      return;
-    }
-    final flushX = _scrollRemainderX.truncateToDouble();
-    final flushY = _scrollRemainderY.truncateToDouble();
-    if (flushX == 0 && flushY == 0) {
-      return;
-    }
-    _scrollRemainderX -= flushX;
-    _scrollRemainderY -= flushY;
-    _controller._setScrollDelta(flushX, flushY);
   }
 
   void _reportSurfaceSize() async {
