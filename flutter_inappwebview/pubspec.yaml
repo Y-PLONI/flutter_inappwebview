@@ -32,7 +32,9 @@ dependencies:
     # path: ../flutter_inappwebview_web
   flutter_inappwebview_windows: ^0.7.0-beta.3
     # path: ../flutter_inappwebview_windows
-  flutter_inappwebview_linux: ^0.1.0-beta.1
+  # flutter_inappwebview_linux 0.1.0-beta.1 requires WPE WebKit >= 2.40 and does
+  # not compile against Ubuntu 22.04's WPE 2.36 — linux endorsement disabled.
+  # flutter_inappwebview_linux: ^0.1.0-beta.1
     # path: ../flutter_inappwebview_linux
 
 dev_dependencies:
@@ -62,8 +64,6 @@ flutter:
         default_package: flutter_inappwebview_web
       windows:
         default_package: flutter_inappwebview_windows
-      linux:
-        default_package: flutter_inappwebview_linux
 
   assets:
     - packages/flutter_inappwebview/assets/t_rex_runner/t-rex.html
